@@ -16,14 +16,25 @@
  * Slow free path: remote free (atomic Treiber stack push).
  */
 
-void *slab_alloc(size_t size) {
+/*
+ * Core slab allocation with optional zero-tracking.
+ * If zeroed is non-NULL, *zeroed is set to true when the slot came from
+ * bump allocation (virgin mmap memory, guaranteed zero), false otherwise.
+ */
+static void *slab_alloc_inner(size_t size, bool *zeroed) {
     if (__builtin_expect(size == 0, 0)) size = 1;
-    if (__builtin_expect(size > MEDIUM_MAX, 0)) return large_alloc(size);
+    if (__builtin_expect(size > MEDIUM_MAX, 0)) {
+        if (zeroed) *zeroed = false;
+        return large_alloc(size);
+    }
 
     uint8_t bin = size_to_bin(size);
     size_t slot_size = bin_to_size(bin);
 
-    if (__builtin_expect(slot_size > PAGE_SIZE_ALLOC / 2, 0)) return large_alloc(size);
+    if (__builtin_expect(slot_size > PAGE_SIZE_ALLOC / 2, 0)) {
+        if (zeroed) *zeroed = false;
+        return large_alloc(size);
+    }
 
     /* Fast path: try thread-local cached page */
     tld_t *tld = tld_get();
@@ -36,6 +47,7 @@ void *slab_alloc(size_t size) {
                 page->local_free = *(void **)slot;
                 page->local_free_count--;
                 atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
+                if (zeroed) *zeroed = false; /* free-list slot: may be dirty */
                 return slot;
             }
             /* Try bump allocator */
@@ -44,6 +56,7 @@ void *slab_alloc(size_t size) {
                 void *slot = (char *)base + page->bump_offset;
                 page->bump_offset += page->slot_size;
                 atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
+                if (zeroed) *zeroed = true; /* virgin mmap memory */
                 return slot;
             }
             /* Try collecting remote frees (needs to be done carefully) */
@@ -53,6 +66,7 @@ void *slab_alloc(size_t size) {
                 page->local_free = *(void **)slot;
                 page->local_free_count--;
                 atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
+                if (zeroed) *zeroed = false;
                 return slot;
             }
             /* Page is full, clear cache */
@@ -64,7 +78,7 @@ void *slab_alloc(size_t size) {
     arena_t *arena = arena_get();
     if (__builtin_expect(!arena, 0)) return NULL;
 
-    void *result = arena_alloc(arena, (size_t)bin);
+    void *result = arena_alloc(arena, (size_t)bin, zeroed);
 
     /* Cache the page we allocated from, but only if we can claim ownership.
      * Use CAS: only set owner if currently unowned (UINT32_MAX). */
@@ -86,6 +100,14 @@ void *slab_alloc(size_t size) {
     }
 
     return result;
+}
+
+void *slab_alloc(size_t size) {
+    return slab_alloc_inner(size, NULL);
+}
+
+void *slab_alloc_zeroed(size_t size, bool *zeroed) {
+    return slab_alloc_inner(size, zeroed);
 }
 
 void slab_free(void *ptr) {

@@ -48,13 +48,21 @@ void *my_calloc(size_t count, size_t size) {
         return NULL;
     }
 
-    void *ptr = my_malloc(total);
-    if (ptr) {
-        /*
-         * For bump-allocated slots the memory comes from mmap and is
-         * already zeroed. We could skip memset in that case, but for
-         * correctness (slots from free list may be dirty) we always zero.
-         */
+    malloc_ensure_init();
+
+    if (__builtin_expect(total == 0, 0)) total = 1;
+
+    void *ptr;
+    if (total > MEDIUM_MAX) {
+        /* Large allocations come from mmap — already zeroed */
+        ptr = large_alloc(total);
+        /* large_alloc returns mmap memory which is zero-filled by the OS */
+        return ptr;
+    }
+
+    bool zeroed = false;
+    ptr = slab_alloc_zeroed(total, &zeroed);
+    if (ptr && !zeroed) {
         memset(ptr, 0, total);
     }
     return ptr;

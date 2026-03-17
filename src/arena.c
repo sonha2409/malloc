@@ -47,21 +47,25 @@ static void bin_insert_page(arena_t *arena, page_meta_t *page) {
  *
  * We do NOT touch local_free here — that's exclusively the owner thread's domain.
  */
-void *arena_alloc(arena_t *arena, size_t bin_idx) {
+void *arena_alloc(arena_t *arena, size_t bin_idx, bool *zeroed) {
     uint8_t bin = (uint8_t)bin_idx;
 
     pthread_mutex_lock(&arena->lock);
 
-    /* Try existing pages that still have bump space */
+    /* Try existing UNOWNED pages that still have bump space.
+     * Skip pages with an owner — their bump_offset is being used
+     * by the owner thread without locks (single-writer invariant). */
     page_meta_t *page = arena->bins[bin];
     while (page) {
-        if (page->bump_offset < page->bump_end) {
+        uint32_t owner = atomic_load_explicit(&page->owner_tid, memory_order_relaxed);
+        if (owner == UINT32_MAX && page->bump_offset < page->bump_end) {
             void *base = page_start(page);
             void *slot = (char *)base + page->bump_offset;
             page->bump_offset += page->slot_size;
             atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
             atomic_fetch_add(&arena->allocated, page->slot_size);
             pthread_mutex_unlock(&arena->lock);
+            if (zeroed) *zeroed = true; /* bump = virgin mmap */
             return slot;
         }
         page = page->next;
@@ -106,6 +110,7 @@ void *arena_alloc(arena_t *arena, size_t bin_idx) {
     atomic_fetch_add(&arena->allocated, new_page->slot_size);
 
     pthread_mutex_unlock(&arena->lock);
+    if (zeroed) *zeroed = true; /* new page = virgin mmap */
     return slot;
 }
 

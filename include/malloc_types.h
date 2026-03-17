@@ -190,11 +190,12 @@ void    page_retire(page_meta_t *page);
 
 /* slab.c */
 void   *slab_alloc(size_t size);
+void   *slab_alloc_zeroed(size_t size, bool *zeroed);
 void    slab_free(void *ptr);
 
 /* arena.c */
 void    arena_init(arena_t *arena, uint32_t id);
-void   *arena_alloc(arena_t *arena, size_t size);
+void   *arena_alloc(arena_t *arena, size_t size, bool *zeroed);
 void    arena_free(arena_t *arena, void *ptr, page_meta_t *page);
 arena_t *arena_get(void);
 
