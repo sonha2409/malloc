@@ -596,7 +596,60 @@ Sums across all arenas + large allocs:
 
 ---
 
-## 14. Known Limitations and Future Work
+## 14. Debug Mode (`MALLOC_DEBUG`)
+
+When compiled with `-DMALLOC_DEBUG=1` (automatic in Debug builds), the allocator enables runtime integrity checking with zero overhead in Release builds.
+
+### Per-Page Allocation Bitmap
+
+Each `page_meta_t` gains a `debug_bitmap[512]` array — 1 bit per slot (max 4096 slots per page at 16-byte min alignment). The bitmap is embedded in the struct to avoid separate allocation (the allocator can't call itself).
+
+| Operation | When | Implementation |
+|-----------|------|----------------|
+| **Set bit** | Every `slab_alloc` (bump + free-list) and `arena_alloc` bump path | `__atomic_fetch_or` (relaxed) — aborts if bit already set |
+| **Clear bit** | Every `slab_free` (before local/remote free logic) | `__atomic_fetch_and` (relaxed) — aborts if bit already clear (double-free) |
+| **Check** | `debug_heap_check()` | `__atomic_load_n` (relaxed) |
+
+Atomic byte-level operations ensure thread safety when multiple threads perform remote frees to the same page concurrently.
+
+### Double-Free Detection
+
+`debug_check_and_mark_freed()` atomically clears the slot's bitmap bit and inspects the old value. If the bit was already clear, it prints a diagnostic message (pointer, slot index, page address) and calls `abort()`. This catches:
+- Local double-free (same thread frees twice)
+- Remote double-free (different thread frees same slot)
+- Cross-thread double-free (allocating thread frees, then another thread frees again)
+
+### Heap Integrity Checker
+
+`debug_heap_check()` walks all arenas → segments → active pages and validates:
+1. **Bitmap popcount == `used` count** — ensures the bitmap accurately reflects allocated state
+2. **Local free list entries have bitmap bits CLEAR** — free-list entries should not be marked allocated
+3. **Local free list entries are valid** — slot-aligned, within page bounds, no cycles
+4. **`local_free_count` matches walk length** — counter consistency
+5. **Capacity invariant**: `used + local_free + remote_free + bump_remaining == capacity`
+
+Best called in a quiescent state (single-threaded or after all allocator activity stops). Holds the arena lock during each arena's scan.
+
+### Struct Size Impact
+
+With `MALLOC_DEBUG`, `page_meta_t` grows by 512 bytes (the bitmap). Total segment header impact: 64 pages × 512 = 32 KB added to page 0's 64 KB region. Release builds see no change.
+
+### Build and Test
+
+```bash
+cmake .. -DCMAKE_BUILD_TYPE=Debug   # MALLOC_DEBUG=1 for all targets
+make && ./test_debug                # 9 debug-specific tests
+
+# test_debug also works in Release builds (uses dedicated debug library)
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make && ./test_debug
+```
+
+---
+
+## 15. Known Limitations and Future Work
+
+> *Section numbers 15+ shifted by the addition of section 14 (Debug Mode).*
 
 ### Current Limitations
 
@@ -606,7 +659,7 @@ Sums across all arenas + large allocs:
 
 3. **Fixed arena count**: The number of arenas is fixed at initialization (4). Dynamic arena creation based on active thread count would improve scalability.
 
-4. **No debug heap**: The `MALLOC_DEBUG` flag is defined but not fully utilized. A debug mode with guard pages, double-free detection, and buffer overflow checking would aid development.
+4. ~~**No debug heap**~~: *(Implemented)* When compiled with `MALLOC_DEBUG=1`, a per-page allocation bitmap (1 bit per slot) tracks allocated state. `slab_free` checks the bitmap and aborts with a diagnostic on double-free. `debug_heap_check()` walks all arenas/segments/pages to validate bitmap vs used counts, free list consistency, and capacity invariants. All bitmap operations use atomic byte-level ops for thread-safe remote frees. Zero overhead in Release builds.
 
 5. ~~**No `malloc_zone_pressure_relief`**~~: *(Implemented)* The pressure relief callback walks all arenas/segments/pages under the arena lock and calls `MADV_FREE` on empty active pages, allowing macOS to reclaim physical memory under pressure.
 
@@ -619,7 +672,7 @@ Sums across all arenas + large allocs:
 
 ---
 
-## 15. References
+## 16. References
 
 1. D. Lea, "A Memory Allocator," 1996. (DLMalloc)
 2. D. Leijen, B. Zorn, L. de Moura, "Mimalloc: Free List Sharding in Action," Microsoft Research, 2019.
