@@ -69,7 +69,11 @@ target_link_libraries(test_debug PRIVATE custommalloc_static_debug pthread)
 target_include_directories(test_debug PRIVATE include)
 target_compile_definitions(test_debug PRIVATE MALLOC_DEBUG=1)
 
-# Benchmark
+# Benchmarks
 add_executable(bench_throughput tests/bench_throughput.c)
 target_link_libraries(bench_throughput PRIVATE custommalloc_static pthread)
 target_include_directories(bench_throughput PRIVATE include)
+
+add_executable(bench_memory tests/bench_memory.c)
+target_link_libraries(bench_memory PRIVATE custommalloc_static pthread)
+target_include_directories(bench_memory PRIVATE include)
