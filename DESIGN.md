@@ -608,7 +608,7 @@ Sums across all arenas + large allocs:
 
 4. **No debug heap**: The `MALLOC_DEBUG` flag is defined but not fully utilized. A debug mode with guard pages, double-free detection, and buffer overflow checking would aid development.
 
-5. **No `malloc_zone_pressure_relief`**: The pressure relief callback is a no-op. It could scan arenas for empty pages and `MADV_FREE` them.
+5. ~~**No `malloc_zone_pressure_relief`**~~: *(Implemented)* The pressure relief callback walks all arenas/segments/pages under the arena lock and calls `MADV_FREE` on empty active pages, allowing macOS to reclaim physical memory under pressure.
 
 ### Future Optimizations
 

@@ -128,7 +128,7 @@ Status: **PARTIAL**
 - [x] **F5.1**: Hot path optimization — slab_alloc fast path ≤15 instructions (2026-03-16)
 - [x] **F5.2**: `__builtin_expect` on all branches in hot path (2026-03-16)
 - [x] **F5.3**: Calloc optimization — skip memset for bump-allocated pages (mmap guarantees zero) (2026-03-17)
-- [ ] **F5.4**: pressure_relief zone callback — MADV_FREE all empty pages on memory pressure *(stub exists)*
+- [x] **F5.4**: pressure_relief zone callback — MADV_FREE all empty pages on memory pressure (2026-03-17)
 - [ ] **F5.5**: Debug mode — heap integrity checker, double-free detection via per-page bitmap *(MALLOC_DEBUG flag exists but minimal)*
 - [x] **F5.6**: Statistics counters — per-arena alloc/free/block counts with TLD-batched fast path, large alloc + mmap byte tracking, zone_statistics() fully wired (2026-03-17)
 
@@ -147,6 +147,7 @@ Status: **PARTIAL**
 
 | Date | Session | Work Done | Next Step |
 |---|---|---|---|
+| 2026-03-17 | #6 | F5.4 pressure_relief zone callback: walks arenas/segments/pages under lock, MADV_FREE on empty active pages. All tests pass, zone interposition verified. | F5.5 debug mode, then Phase 6 (F6.4–F6.5) |
 | 2026-03-17 | #5 | F5.6 statistics counters: per-arena atomic counters (allocated/freed/alloc_count/free_count), TLD-batched fast path (flush every 64 ops), large alloc + mmap byte tracking, zone_statistics() fully wired, lazy peak watermark. test_statistics added. Negligible perf impact (~50M ops/sec). | Finish Phase 5 (F5.4–F5.5) or Phase 6 (F6.4–F6.5) |
 | 2026-03-17 | #4 | F5.3 calloc zero-skip optimization (slab_alloc_zeroed). Fixed pre-existing data race: arena_alloc was bump-allocating from owned pages, racing with owner thread's lock-free fast path on bump_offset. Fix: skip owned pages in arena scan. TSan-clean, test_threads 10/10. | Finish Phase 5 (F5.4–F5.6) or Phase 6 (F6.4–F6.5) |
 | 2026-03-16 | #3 | Updated CLAUDE.md (workflow rules, git conventions, user interaction). Updated SPEC.md to reflect all implemented phases. | Finish Phase 5 (F5.3–F5.6) or Phase 6 (F6.4–F6.5) |
