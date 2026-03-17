@@ -109,8 +109,29 @@ static boolean_t zone_claimed_address(malloc_zone_t *zone, void *ptr) {
 static size_t zone_pressure_relief(malloc_zone_t *zone, size_t pressure) {
     (void)zone;
     (void)pressure;
-    /* Could implement MADV_FREE on idle pages here */
-    return 0;
+
+    size_t released = 0;
+    int arena_count = atomic_load_explicit(&g_state.arena_count, memory_order_relaxed);
+
+    for (int i = 0; i < arena_count; i++) {
+        arena_t *arena = &g_state.arenas[i];
+        pthread_mutex_lock(&arena->lock);
+
+        for (segment_t *seg = arena->segments; seg; seg = seg->next) {
+            for (size_t p = PAGES_DATA_START; p < PAGES_PER_SEGMENT; p++) {
+                page_meta_t *page = &seg->pages[p];
+                if (page->state == PAGE_ACTIVE && page_is_empty(page)) {
+                    void *start = page_start(page);
+                    os_madvise_free(start, PAGE_SIZE_ALLOC);
+                    released += PAGE_SIZE_ALLOC;
+                }
+            }
+        }
+
+        pthread_mutex_unlock(&arena->lock);
+    }
+
+    return released;
 }
 
 /* Introspection */
