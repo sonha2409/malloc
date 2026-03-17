@@ -95,10 +95,32 @@ DYLD_INSERT_LIBRARIES=./libmalloc.dylib /bin/ls
 
 ## Workflow
 
-- Implement **one phase at a time**. Stop after each phase is complete.
-- After each phase, the user will manually test. Do not proceed to the next phase until told to.
-- Once the user confirms the phase works, they will commit and push to GitHub.
-- After each phase is committed and pushed, remind the user: **"This conversation's context is getting longer. Starting a new session is recommended so I load fresh with CLAUDE.md and memory — I won't lose any project knowledge since it's all in the repo and my memory files. Stay in this session only if the next phase is tightly coupled to what we just did."**
+Each phase follows this strict sequence:
+
+### Step 1: Implement
+- Implement **one phase at a time**.
+
+### Step 2: Test
+- Write or update tests covering the new/changed functionality.
+- Run **all** tests: `./test_basic && ./test_realloc && ./test_large && ./test_alignment && ./test_threads`
+- For concurrency changes, run `test_threads` 10 times: `for i in $(seq 1 10); do ./test_threads || echo "FAIL $i"; done`
+- Fix any failures before proceeding.
+
+### Step 3: User Verification
+- **Stop and present verification instructions** to the user: explain what was changed, how to manually verify (specific commands to run, expected output, what to look for).
+- Do NOT proceed until the user explicitly confirms ("looks good", "approved", "green light", etc.).
+
+### Step 4: Commit & Push
+- Only after user gives the green light: commit (Conventional Commits format) and push to GitHub.
+
+### Step 5: Update Docs
+- After commit & push, update relevant documentation (`DESIGN.md`, `SPEC.md`, `CLAUDE.md`, `README.md`) to reflect the changes.
+- Commit and push doc updates separately.
+
+### Step 6: Session Reminder
+- After docs are committed and pushed, remind the user: **"This conversation's context is getting longer. Starting a new session is recommended so I load fresh with CLAUDE.md and memory — I won't lose any project knowledge since it's all in the repo and my memory files. Stay in this session only if the next phase is tightly coupled to what we just did."**
+
+### General
 - **Project knowledge lives in the repo**: Store all project context in `CLAUDE.md`, `SPEC.md`, and `DESIGN.md` — not in `~/.claude/` memory files. These repo files are the single source of truth.
 
 ## Git Conventions
