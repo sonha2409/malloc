@@ -130,7 +130,7 @@ Status: **PARTIAL**
 - [x] **F5.3**: Calloc optimization — skip memset for bump-allocated pages (mmap guarantees zero) (2026-03-17)
 - [ ] **F5.4**: pressure_relief zone callback — MADV_FREE all empty pages on memory pressure *(stub exists)*
 - [ ] **F5.5**: Debug mode — heap integrity checker, double-free detection via per-page bitmap *(MALLOC_DEBUG flag exists but minimal)*
-- [ ] **F5.6**: Statistics counters — total alloc/free/mmap bytes (atomic, low overhead) *(counters tracked per-arena, zone_statistics() not wired up)*
+- [x] **F5.6**: Statistics counters — per-arena alloc/free/block counts with TLD-batched fast path, large alloc + mmap byte tracking, zone_statistics() fully wired (2026-03-17)
 
 ### Phase 6: Benchmarking & Tuning
 Status: **PARTIAL**
@@ -147,6 +147,7 @@ Status: **PARTIAL**
 
 | Date | Session | Work Done | Next Step |
 |---|---|---|---|
+| 2026-03-17 | #5 | F5.6 statistics counters: per-arena atomic counters (allocated/freed/alloc_count/free_count), TLD-batched fast path (flush every 64 ops), large alloc + mmap byte tracking, zone_statistics() fully wired, lazy peak watermark. test_statistics added. Negligible perf impact (~50M ops/sec). | Finish Phase 5 (F5.4–F5.5) or Phase 6 (F6.4–F6.5) |
 | 2026-03-17 | #4 | F5.3 calloc zero-skip optimization (slab_alloc_zeroed). Fixed pre-existing data race: arena_alloc was bump-allocating from owned pages, racing with owner thread's lock-free fast path on bump_offset. Fix: skip owned pages in arena scan. TSan-clean, test_threads 10/10. | Finish Phase 5 (F5.4–F5.6) or Phase 6 (F6.4–F6.5) |
 | 2026-03-16 | #3 | Updated CLAUDE.md (workflow rules, git conventions, user interaction). Updated SPEC.md to reflect all implemented phases. | Finish Phase 5 (F5.3–F5.6) or Phase 6 (F6.4–F6.5) |
 | 2026-03-16 | #2 | Implemented Phases 0–4 fully, Phase 5 partially (hot path + builtin_expect), Phase 6 partially (benchmarks). All 5 tests pass. Performance: ~53M small ops/sec, ~212M 4-thread ops/sec. | Finish Phase 5 remainders, Phase 6 real-program testing |

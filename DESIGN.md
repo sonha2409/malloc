@@ -151,8 +151,10 @@ struct arena_s {
     segment_t       *segments;          // owned segments list
     uint32_t         segment_count;
 
-    _Atomic(size_t)  allocated;         // statistics
-    _Atomic(size_t)  freed;
+    _Atomic(size_t)  allocated;         // total bytes given to callers
+    _Atomic(size_t)  freed;             // total bytes returned by callers
+    _Atomic(size_t)  alloc_count;       // total allocation count
+    _Atomic(size_t)  free_count;        // total free count
 };
 ```
 
@@ -167,6 +169,13 @@ struct tld_s {
     arena_t      *arena;                // assigned arena
     uint32_t      thread_id;            // unique thread ID
     page_meta_t  *bin_page[75];         // per-bin cached page pointer
+
+    // Thread-local stat counters (flushed to arena every 64 ops)
+    size_t        stat_allocated;
+    size_t        stat_freed;
+    size_t        stat_alloc_count;
+    size_t        stat_free_count;
+    uint32_t      stat_ops;
 };
 ```
 
@@ -554,7 +563,40 @@ malloc/
 
 ---
 
-## 13. Known Limitations and Future Work
+## 13. Statistics and Introspection
+
+The allocator provides full `malloc_statistics_t` reporting via the `zone_statistics()` introspection callback.
+
+### Counter Architecture
+
+**Per-arena atomics** (`_Atomic(size_t)`, relaxed ordering):
+- `allocated` / `freed` — cumulative bytes
+- `alloc_count` / `free_count` — cumulative block counts
+
+**Global atomics** in `global_state_t`:
+- `large_allocated` / `large_alloc_count` — active large allocation bytes (user-requested) and count
+- `mmap_bytes` — total bytes currently mmap'd from the OS
+- `peak_in_use` — high watermark of bytes in use (updated lazily on stats query)
+
+### TLD-Batched Fast Path
+
+Direct atomic increments on every alloc/free caused ~22% throughput regression due to arena cache line contention. The solution: **thread-local batching**.
+
+Each `tld_t` accumulates stats in non-atomic local counters (`stat_allocated`, `stat_freed`, `stat_alloc_count`, `stat_free_count`). Every 64 operations, `tld_stat_flush()` pushes the accumulated values to the arena atomics in a single batch. On thread exit, `tld_cleanup()` flushes remaining stats.
+
+**Trade-off**: Stats may lag by up to 64 ops per active thread. This is acceptable — `zone_statistics()` uses relaxed ordering anyway, so it was already a best-effort snapshot.
+
+### `zone_statistics()` Aggregation
+
+Sums across all arenas + large allocs:
+- `blocks_in_use` = Σ(arena alloc_count − free_count) + large_alloc_count
+- `size_in_use` = Σ(arena allocated − freed) + large_allocated
+- `max_size_in_use` = peak watermark (updated lazily via CAS on each stats query)
+- `size_allocated` = mmap_bytes (total virtual memory committed)
+
+---
+
+## 14. Known Limitations and Future Work
 
 ### Current Limitations
 
@@ -577,7 +619,7 @@ malloc/
 
 ---
 
-## 14. References
+## 15. References
 
 1. D. Lea, "A Memory Allocator," 1996. (DLMalloc)
 2. D. Leijen, B. Zorn, L. de Moura, "Mimalloc: Free List Sharding in Action," Microsoft Research, 2019.
