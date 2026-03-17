@@ -1,5 +1,6 @@
 #include "malloc_types.h"
 #include <string.h>
+#include <stdio.h>
 
 /*
  * Page-level allocation: bump allocator + free list.
@@ -33,6 +34,10 @@ void page_init(page_meta_t *page, segment_t *seg, uint16_t page_index,
     page->next = NULL;
     page->prev = NULL;
     atomic_store(&page->owner_tid, UINT32_MAX); /* no owner yet */
+
+#if MALLOC_DEBUG
+    memset(page->debug_bitmap, 0, DEBUG_BITMAP_BYTES);
+#endif
 }
 
 /*

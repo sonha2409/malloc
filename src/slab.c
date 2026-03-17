@@ -86,6 +86,9 @@ static void *slab_alloc_inner(size_t size, bool *zeroed) {
                 page->local_free = *(void **)slot;
                 page->local_free_count--;
                 atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
+#if MALLOC_DEBUG
+                debug_mark_allocated(page, slot);
+#endif
                 tld_stat_alloc(tld, page->slot_size);
                 if (zeroed) *zeroed = false; /* free-list slot: may be dirty */
                 return slot;
@@ -96,6 +99,9 @@ static void *slab_alloc_inner(size_t size, bool *zeroed) {
                 void *slot = (char *)base + page->bump_offset;
                 page->bump_offset += page->slot_size;
                 atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
+#if MALLOC_DEBUG
+                debug_mark_allocated(page, slot);
+#endif
                 tld_stat_alloc(tld, page->slot_size);
                 if (zeroed) *zeroed = true; /* virgin mmap memory */
                 return slot;
@@ -107,6 +113,9 @@ static void *slab_alloc_inner(size_t size, bool *zeroed) {
                 page->local_free = *(void **)slot;
                 page->local_free_count--;
                 atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
+#if MALLOC_DEBUG
+                debug_mark_allocated(page, slot);
+#endif
                 tld_stat_alloc(tld, page->slot_size);
                 if (zeroed) *zeroed = false;
                 return slot;
@@ -160,6 +169,11 @@ void slab_free(void *ptr) {
 
     page_meta_t *page = ptr_to_page(ptr);
     if (__builtin_expect(!page || page->state == PAGE_UNUSED, 0)) return;
+
+    /* Debug: validate this slot is currently allocated */
+#if MALLOC_DEBUG
+    debug_check_and_mark_freed(page, ptr);
+#endif
 
     /* Check if current thread is the page owner for fast local free */
     tld_t *tld = tld_get();

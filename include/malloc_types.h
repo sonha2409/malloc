@@ -58,6 +58,11 @@ struct page_meta_s {
     /* Page index within segment */
     uint16_t    page_index;
     uint16_t    _pad;
+
+#if MALLOC_DEBUG
+    /* Debug bitmap: 1 bit per slot (1 = allocated, 0 = free/virgin) */
+    uint8_t     debug_bitmap[DEBUG_BITMAP_BYTES];
+#endif
 };
 
 /* ──────────────────────────────────────────────
@@ -247,6 +252,13 @@ size_t  my_malloc_usable_size(const void *ptr);
 /* zone.c (macOS) */
 #ifndef MALLOC_NO_ZONE
 void    zone_register(void);
+#endif
+
+/* debug.c */
+#if MALLOC_DEBUG
+void    debug_mark_allocated(page_meta_t *page, void *ptr);
+void    debug_check_and_mark_freed(page_meta_t *page, void *ptr);
+bool    debug_heap_check(void);
 #endif
 
 #endif /* MALLOC_TYPES_H */

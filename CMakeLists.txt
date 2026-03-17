@@ -26,6 +26,7 @@ set(MALLOC_SOURCES
     src/init.c
     src/malloc.c
     src/zone.c
+    src/debug.c
 )
 
 # Shared library (.dylib)
@@ -55,6 +56,18 @@ add_malloc_test(test_realloc)
 add_malloc_test(test_large)
 add_malloc_test(test_alignment)
 add_malloc_test(test_threads)
+
+# Static library with debug mode forced on (for test_debug)
+add_library(custommalloc_static_debug STATIC ${MALLOC_SOURCES})
+target_include_directories(custommalloc_static_debug PUBLIC include)
+target_link_libraries(custommalloc_static_debug PRIVATE pthread)
+target_compile_definitions(custommalloc_static_debug PRIVATE MALLOC_NO_ZONE=1 MALLOC_DEBUG=1)
+
+# Debug-mode test (linked against debug library)
+add_executable(test_debug tests/test_debug.c)
+target_link_libraries(test_debug PRIVATE custommalloc_static_debug pthread)
+target_include_directories(test_debug PRIVATE include)
+target_compile_definitions(test_debug PRIVATE MALLOC_DEBUG=1)
 
 # Benchmark
 add_executable(bench_throughput tests/bench_throughput.c)

@@ -42,6 +42,11 @@
 #define MALLOC_DEBUG        0
 #endif
 
+#if MALLOC_DEBUG
+/* Bitmap: 1 bit per slot, max slots = PAGE_SIZE_ALLOC / MIN_ALIGN */
+#define DEBUG_BITMAP_BYTES  (PAGE_SIZE_ALLOC / MIN_ALIGN / 8)  /* 512 */
+#endif
+
 /* Bootstrap buffer for pre-init allocations */
 #define BOOTSTRAP_BUF_SIZE  (64 * 1024)
 
