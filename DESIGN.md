@@ -244,9 +244,11 @@ slab_alloc(size):
   SLOW PATH (arena mutex):
   6. arena = tld->arena
   7. Lock arena->lock
-  8. Scan arena->bins[bin] for page with bump space
+  8. Scan arena->bins[bin] for UNOWNED page with bump space
+     (skip pages with owner_tid != UINT32_MAX to avoid racing
+      with the owner's lock-free bump_offset access)
   9. If none: allocate new page from existing segment or new segment
-  10. Bump-allocate from new page
+  10. Bump-allocate from new/unowned page
   11. Unlock
   12. CAS page->owner_tid to claim ownership
   13. If claimed: tld->bin_page[bin] = page
@@ -568,7 +570,7 @@ malloc/
 
 ### Future Optimizations
 
-- **Calloc fast path**: Skip `memset` for slots from bump allocation (mmap pages are already zeroed).
+- ~~**Calloc fast path**~~: *(Implemented)* `slab_alloc_zeroed()` tracks whether the slot came from bump allocation; `my_calloc` skips `memset` when the slot is already zero.
 - **Prefetching**: `__builtin_prefetch` on the next free list node during allocation.
 - **NUMA awareness**: Bind arenas to specific CPU cores for NUMA locality.
 - **Secure allocator mode**: Randomize slot order within pages, guard pages between segments, zero-on-free for sensitive allocations.
