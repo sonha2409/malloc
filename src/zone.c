@@ -126,12 +126,41 @@ static kern_return_t zone_enumerator(task_t task, void *context,
 
 static void zone_statistics(malloc_zone_t *zone, malloc_statistics_t *stats) {
     (void)zone;
-    if (stats) {
-        stats->blocks_in_use = 0;
-        stats->size_in_use = 0;
-        stats->max_size_in_use = 0;
-        stats->size_allocated = 0;
+    if (!stats) return;
+
+    size_t blocks = 0;
+    size_t bytes_in_use = 0;
+
+    /* Aggregate slab stats across all arenas */
+    int count = atomic_load_explicit(&g_state.arena_count, memory_order_relaxed);
+    for (int i = 0; i < count; i++) {
+        arena_t *a = &g_state.arenas[i];
+        size_t alloc_c = atomic_load_explicit(&a->alloc_count, memory_order_relaxed);
+        size_t free_c  = atomic_load_explicit(&a->free_count, memory_order_relaxed);
+        size_t alloc_b = atomic_load_explicit(&a->allocated, memory_order_relaxed);
+        size_t freed_b = atomic_load_explicit(&a->freed, memory_order_relaxed);
+        blocks += (alloc_c > free_c) ? (alloc_c - free_c) : 0;
+        bytes_in_use += (alloc_b > freed_b) ? (alloc_b - freed_b) : 0;
     }
+
+    /* Add large allocation stats */
+    size_t large_count = atomic_load_explicit(&g_state.large_alloc_count, memory_order_relaxed);
+    size_t large_bytes = atomic_load_explicit(&g_state.large_allocated, memory_order_relaxed);
+    blocks += large_count;
+    bytes_in_use += large_bytes;
+
+    stats->blocks_in_use = (unsigned)blocks;
+    stats->size_in_use = bytes_in_use;
+    stats->size_allocated = atomic_load_explicit(&g_state.mmap_bytes, memory_order_relaxed);
+
+    /* Update peak watermark lazily (only when stats are queried) */
+    size_t prev_peak = atomic_load_explicit(&g_state.peak_in_use, memory_order_relaxed);
+    if (bytes_in_use > prev_peak) {
+        atomic_compare_exchange_strong_explicit(
+            &g_state.peak_in_use, &prev_peak, bytes_in_use,
+            memory_order_relaxed, memory_order_relaxed);
+    }
+    stats->max_size_in_use = (bytes_in_use > prev_peak) ? bytes_in_use : prev_peak;
 }
 
 static void zone_log(malloc_zone_t *zone, void *addr) {

@@ -96,9 +96,11 @@ struct arena_s {
     segment_t      *segments;       /* linked list head */
     uint32_t        segment_count;
 
-    /* Statistics */
-    _Atomic(size_t) allocated;
-    _Atomic(size_t) freed;
+    /* Statistics (relaxed atomics — updated on every alloc/free) */
+    _Atomic(size_t) allocated;      /* total bytes given to callers */
+    _Atomic(size_t) freed;          /* total bytes returned by callers */
+    _Atomic(size_t) alloc_count;    /* total allocation count */
+    _Atomic(size_t) free_count;     /* total free count */
 };
 
 /* ──────────────────────────────────────────────
@@ -110,6 +112,13 @@ struct tld_s {
     /* Per-bin page cache: the thread's "current" page for each bin.
      * Alloc can try this page first without taking the arena lock. */
     page_meta_t *bin_page[BIN_COUNT];
+
+    /* Thread-local statistics (flushed to arena periodically and on exit) */
+    size_t stat_allocated;      /* bytes allocated since last flush */
+    size_t stat_freed;          /* bytes freed since last flush */
+    size_t stat_alloc_count;    /* allocs since last flush */
+    size_t stat_free_count;     /* frees since last flush */
+    uint32_t stat_ops;          /* ops since last flush (triggers flush) */
 };
 
 /* ──────────────────────────────────────────────
@@ -142,6 +151,14 @@ typedef struct {
     /* Bootstrap buffer for pre-init allocations */
     char            bootstrap_buf[BOOTSTRAP_BUF_SIZE];
     _Atomic(size_t) bootstrap_used;
+
+    /* Large allocation statistics */
+    _Atomic(size_t) large_allocated;    /* bytes currently in large allocs */
+    _Atomic(size_t) large_alloc_count;  /* active large allocation count */
+
+    /* OS memory tracking */
+    _Atomic(size_t) mmap_bytes;         /* total bytes currently mmap'd */
+    _Atomic(size_t) peak_in_use;        /* high watermark of bytes in use */
 
     /* Segment registry: hash set of active segment base addresses */
     _Atomic(uintptr_t) segment_registry[SEGMENT_REGISTRY_SIZE];

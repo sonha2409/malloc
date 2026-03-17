@@ -8,6 +8,8 @@ void arena_init(arena_t *arena, uint32_t id) {
     atomic_store(&arena->thread_count, 0);
     atomic_store(&arena->allocated, 0);
     atomic_store(&arena->freed, 0);
+    atomic_store(&arena->alloc_count, 0);
+    atomic_store(&arena->free_count, 0);
 }
 
 /*
@@ -63,7 +65,8 @@ void *arena_alloc(arena_t *arena, size_t bin_idx, bool *zeroed) {
             void *slot = (char *)base + page->bump_offset;
             page->bump_offset += page->slot_size;
             atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
-            atomic_fetch_add(&arena->allocated, page->slot_size);
+            atomic_fetch_add_explicit(&arena->allocated, page->slot_size, memory_order_relaxed);
+            atomic_fetch_add_explicit(&arena->alloc_count, 1, memory_order_relaxed);
             pthread_mutex_unlock(&arena->lock);
             if (zeroed) *zeroed = true; /* bump = virgin mmap */
             return slot;
@@ -107,7 +110,8 @@ void *arena_alloc(arena_t *arena, size_t bin_idx, bool *zeroed) {
     void *slot = (char *)base + new_page->bump_offset;
     new_page->bump_offset += new_page->slot_size;
     atomic_fetch_add_explicit(&new_page->used, 1, memory_order_relaxed);
-    atomic_fetch_add(&arena->allocated, new_page->slot_size);
+    atomic_fetch_add_explicit(&arena->allocated, new_page->slot_size, memory_order_relaxed);
+    atomic_fetch_add_explicit(&arena->alloc_count, 1, memory_order_relaxed);
 
     pthread_mutex_unlock(&arena->lock);
     if (zeroed) *zeroed = true; /* new page = virgin mmap */

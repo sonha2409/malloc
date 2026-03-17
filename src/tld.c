@@ -9,7 +9,17 @@ void tld_cleanup(void *arg) {
     tld_t *tld = (tld_t *)arg;
     if (!tld) return;
 
+    /* Flush remaining thread-local stats to the arena */
     if (tld->arena) {
+        if (tld->stat_allocated)
+            atomic_fetch_add_explicit(&tld->arena->allocated, tld->stat_allocated, memory_order_relaxed);
+        if (tld->stat_freed)
+            atomic_fetch_add_explicit(&tld->arena->freed, tld->stat_freed, memory_order_relaxed);
+        if (tld->stat_alloc_count)
+            atomic_fetch_add_explicit(&tld->arena->alloc_count, tld->stat_alloc_count, memory_order_relaxed);
+        if (tld->stat_free_count)
+            atomic_fetch_add_explicit(&tld->arena->free_count, tld->stat_free_count, memory_order_relaxed);
+
         atomic_fetch_sub(&tld->arena->thread_count, 1);
     }
 

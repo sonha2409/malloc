@@ -41,6 +41,9 @@ void *large_alloc_aligned(size_t size, size_t alignment) {
     g_state.large_list = la;
     pthread_mutex_unlock(&g_state.large_lock);
 
+    atomic_fetch_add_explicit(&g_state.large_allocated, size, memory_order_relaxed);
+    atomic_fetch_add_explicit(&g_state.large_alloc_count, 1, memory_order_relaxed);
+
     return (char *)base + header_space;
 }
 
@@ -60,8 +63,14 @@ void large_free(void *ptr) {
             if (la->next) la->next->prev = la->prev;
             if (g_state.large_list == la) g_state.large_list = la->next;
 
+            size_t user_size = la->user_size;
+            size_t mmap_size = la->size;
             pthread_mutex_unlock(&g_state.large_lock);
-            os_munmap(la->base, la->size);
+
+            atomic_fetch_sub_explicit(&g_state.large_allocated, user_size, memory_order_relaxed);
+            atomic_fetch_sub_explicit(&g_state.large_alloc_count, 1, memory_order_relaxed);
+
+            os_munmap(la->base, mmap_size);
             return;
         }
         la = la->next;

@@ -16,6 +16,45 @@
  * Slow free path: remote free (atomic Treiber stack push).
  */
 
+#define STAT_FLUSH_INTERVAL 64
+
+static inline void tld_stat_flush(tld_t *tld) {
+    arena_t *a = tld->arena;
+    if (tld->stat_allocated) {
+        atomic_fetch_add_explicit(&a->allocated, tld->stat_allocated, memory_order_relaxed);
+        tld->stat_allocated = 0;
+    }
+    if (tld->stat_freed) {
+        atomic_fetch_add_explicit(&a->freed, tld->stat_freed, memory_order_relaxed);
+        tld->stat_freed = 0;
+    }
+    if (tld->stat_alloc_count) {
+        atomic_fetch_add_explicit(&a->alloc_count, tld->stat_alloc_count, memory_order_relaxed);
+        tld->stat_alloc_count = 0;
+    }
+    if (tld->stat_free_count) {
+        atomic_fetch_add_explicit(&a->free_count, tld->stat_free_count, memory_order_relaxed);
+        tld->stat_free_count = 0;
+    }
+    tld->stat_ops = 0;
+}
+
+static inline void tld_stat_alloc(tld_t *tld, size_t slot_size) {
+    tld->stat_allocated += slot_size;
+    tld->stat_alloc_count++;
+    if (__builtin_expect(++tld->stat_ops >= STAT_FLUSH_INTERVAL, 0)) {
+        tld_stat_flush(tld);
+    }
+}
+
+static inline void tld_stat_free(tld_t *tld, size_t slot_size) {
+    tld->stat_freed += slot_size;
+    tld->stat_free_count++;
+    if (__builtin_expect(++tld->stat_ops >= STAT_FLUSH_INTERVAL, 0)) {
+        tld_stat_flush(tld);
+    }
+}
+
 /*
  * Core slab allocation with optional zero-tracking.
  * If zeroed is non-NULL, *zeroed is set to true when the slot came from
@@ -47,6 +86,7 @@ static void *slab_alloc_inner(size_t size, bool *zeroed) {
                 page->local_free = *(void **)slot;
                 page->local_free_count--;
                 atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
+                tld_stat_alloc(tld, page->slot_size);
                 if (zeroed) *zeroed = false; /* free-list slot: may be dirty */
                 return slot;
             }
@@ -56,6 +96,7 @@ static void *slab_alloc_inner(size_t size, bool *zeroed) {
                 void *slot = (char *)base + page->bump_offset;
                 page->bump_offset += page->slot_size;
                 atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
+                tld_stat_alloc(tld, page->slot_size);
                 if (zeroed) *zeroed = true; /* virgin mmap memory */
                 return slot;
             }
@@ -66,6 +107,7 @@ static void *slab_alloc_inner(size_t size, bool *zeroed) {
                 page->local_free = *(void **)slot;
                 page->local_free_count--;
                 atomic_fetch_add_explicit(&page->used, 1, memory_order_relaxed);
+                tld_stat_alloc(tld, page->slot_size);
                 if (zeroed) *zeroed = false;
                 return slot;
             }
@@ -129,10 +171,18 @@ void slab_free(void *ptr) {
             page->local_free = ptr;
             page->local_free_count++;
             atomic_fetch_sub_explicit(&page->used, 1, memory_order_relaxed);
+            tld_stat_free(tld, page->slot_size);
             return;
         }
     }
 
     /* Slow path: remote free (atomic Treiber stack push) */
     page_free_slot_remote(page, ptr);
+
+    /* Credit the free to the page's arena (where the bytes were allocated) */
+    arena_t *page_arena = page->arena;
+    if (page_arena) {
+        atomic_fetch_add_explicit(&page_arena->freed, page->slot_size, memory_order_relaxed);
+        atomic_fetch_add_explicit(&page_arena->free_count, 1, memory_order_relaxed);
+    }
 }

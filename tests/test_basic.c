@@ -98,6 +98,76 @@ TEST(test_many_alloc_free_cycles) {
     }
 }
 
+TEST(test_statistics) {
+    /* Get baseline stats */
+    int arena_count = atomic_load(&g_state.arena_count);
+    size_t base_alloc = 0, base_freed = 0;
+    size_t base_alloc_count = 0, base_free_count = 0;
+    for (int i = 0; i < arena_count; i++) {
+        base_alloc += atomic_load_explicit(&g_state.arenas[i].allocated, memory_order_relaxed);
+        base_freed += atomic_load_explicit(&g_state.arenas[i].freed, memory_order_relaxed);
+        base_alloc_count += atomic_load_explicit(&g_state.arenas[i].alloc_count, memory_order_relaxed);
+        base_free_count += atomic_load_explicit(&g_state.arenas[i].free_count, memory_order_relaxed);
+    }
+
+    /* Force a TLD stat flush by doing enough ops */
+    #define STAT_N 200
+    void *ptrs[STAT_N];
+    for (int i = 0; i < STAT_N; i++) {
+        ptrs[i] = my_malloc(64);
+        assert(ptrs[i] != NULL);
+    }
+    for (int i = 0; i < STAT_N; i++) {
+        my_free(ptrs[i]);
+    }
+
+    /* Read stats again — should reflect the allocations */
+    size_t after_alloc = 0, after_freed = 0;
+    size_t after_alloc_count = 0, after_free_count = 0;
+    for (int i = 0; i < arena_count; i++) {
+        after_alloc += atomic_load_explicit(&g_state.arenas[i].allocated, memory_order_relaxed);
+        after_freed += atomic_load_explicit(&g_state.arenas[i].freed, memory_order_relaxed);
+        after_alloc_count += atomic_load_explicit(&g_state.arenas[i].alloc_count, memory_order_relaxed);
+        after_free_count += atomic_load_explicit(&g_state.arenas[i].free_count, memory_order_relaxed);
+    }
+
+    size_t delta_alloc = after_alloc - base_alloc;
+    size_t delta_freed = after_freed - base_freed;
+    size_t delta_alloc_count = after_alloc_count - base_alloc_count;
+    size_t delta_free_count = after_free_count - base_free_count;
+
+    /* We allocated 200 blocks of 64 bytes (slot_size = bin_to_size(size_to_bin(64))).
+     * Stats may be slightly behind (up to 64 ops buffered in TLD),
+     * but 200 ops forces at least 2 flushes, so most should be visible. */
+    uint8_t bin = size_to_bin(64);
+    size_t slot = bin_to_size(bin);
+
+    /* At least 128 of 200 allocs should have flushed (200 - 64 buffer = 136 minimum) */
+    assert(delta_alloc_count >= STAT_N / 2);
+    assert(delta_free_count >= STAT_N / 2);
+    assert(delta_alloc >= (STAT_N / 2) * slot);
+    assert(delta_freed >= (STAT_N / 2) * slot);
+
+    /* Test large alloc stats */
+    size_t large_before = atomic_load_explicit(&g_state.large_alloc_count, memory_order_relaxed);
+    void *big = my_malloc(256 * 1024); /* 256KB = large */
+    assert(big != NULL);
+    size_t large_after = atomic_load_explicit(&g_state.large_alloc_count, memory_order_relaxed);
+    assert(large_after == large_before + 1);
+
+    size_t large_bytes = atomic_load_explicit(&g_state.large_allocated, memory_order_relaxed);
+    assert(large_bytes > 0);
+
+    my_free(big);
+    size_t large_final = atomic_load_explicit(&g_state.large_alloc_count, memory_order_relaxed);
+    assert(large_final == large_before);
+
+    /* Test mmap_bytes is positive (we've definitely mmap'd something) */
+    size_t mmap = atomic_load_explicit(&g_state.mmap_bytes, memory_order_relaxed);
+    assert(mmap > 0);
+    #undef STAT_N
+}
+
 TEST(test_size_classes) {
     /* Verify size_to_bin and bin_to_size are consistent */
     for (size_t s = 1; s <= MEDIUM_MAX; s += (s < 256 ? 1 : s / 8)) {
@@ -121,6 +191,7 @@ int main(void) {
     RUN(test_free_null);
     RUN(test_malloc_zero);
     RUN(test_many_alloc_free_cycles);
+    RUN(test_statistics);
     RUN(test_size_classes);
     printf("All basic tests passed!\n");
     return 0;
