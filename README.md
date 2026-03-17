@@ -348,7 +348,6 @@ tests/
 
 - **[DESIGN.md](DESIGN.md)** — comprehensive architecture document with data structures, algorithms, and design rationale
 - **[SPEC.md](SPEC.md)** — feature specification and progress log
-- **[Malloc.pdf](Malloc.pdf)** — reference material on allocator fundamentals
 
 ## License
 
