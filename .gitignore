@@ -1,3 +1,4 @@
 build/
 *.pdf
 .DS_Store
+CLAUDE.md
